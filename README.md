@@ -20,7 +20,7 @@ Extract a video from its ZIP archive before setting it as input. Put the MP4's a
 {"input_file": "D:/path/to/extracted/video.mp4"}
 ```
 
-The current checkout already has an ignored local config pointing to the extracted selected clip. `01_MOSS.ipynb` defaults to `RUN_MODEL=False`. Set `DENOISE=False` or `True`, then **Run All**. Open the printed `audio_preview.html` in a browser; it has players for the original extracted audio and the audio sent to the model. The HTML and WAV files are in `runs/`, which Git ignores. Change `DENOISE` and rerun to compare two separate run folders. This step needs no PyTorch or GPU.
+The current checkout already has an ignored local config pointing to the extracted selected clip. `01_MOSS.ipynb` defaults to `RUN_MODEL=False`. Set `DENOISE=False` or `True`, then **Run All**. Section 2 plays both the original and processed audio **inside the notebook**. `PREVIEW_START_SECONDS` and `PREVIEW_DURATION_SECONDS` choose a listening excerpt of up to 60 seconds; the full-recording players remain in the printed `audio_preview.html`. The HTML and WAV files are in `runs/`, which Git ignores. Change `DENOISE` and rerun to compare two separate run folders. This step needs no PyTorch or GPU.
 
 ## Later: MOSS model inference on Alex's GPU
 
@@ -55,7 +55,7 @@ jupyter lab
 
 Run each line only after the previous installation/check succeeds. The final CUDA value must be `True` for GPU inference. On a fresh Windows clone with no `.venv-moss`, install Python 3.12 first and run `py -3.12 setup_env.py moss` (or use the full path to that Python executable). A Windows venv cannot be moved to Linux; recreate it on Alex's machine.
 
-After full setup, choose the **Trauma MOSS** kernel and change `RUN_MODEL=True` to run inference. The current Windows checkout has the preparation dependencies only; its PyTorch and model dependencies have **not** been installed. A fresh clone on Alex's computer must run `setup_env.py moss` again; virtual environments are intentionally excluded from Git.
+After full setup, choose the **Trauma MOSS** kernel and change `RUN_MODEL=True` to run inference. The last cell then renders a three-panel waveform, speaker activity, and transcript timeline in the notebook and saves `moss_speaker_timeline.html` beside the run WAVs. VibeVoice and NeMo notebooks use the same visualization helper; NeMo's middle panel uses its raw diarization intervals. The current Windows checkout has the preparation dependencies and Plotly for visualization checks, but PyTorch and model dependencies have **not** been installed. A fresh clone on Alex's computer must run `setup_env.py moss` again; virtual environments are intentionally excluded from Git.
 
 The root `requirements.txt` defaults to MOSS and includes `requirements-moss.txt`. The other routes need **separate** environments because [MOSS requires Transformers 5.x](https://github.com/OpenMOSS/MOSS-Transcribe-Diarize/blob/main/pyproject.toml) and [VibeVoice declares Transformers 4.x](https://github.com/microsoft/VibeVoice/blob/main/pyproject.toml). When ready, run `python3.12 setup_env.py vibe` or `python3.12 setup_env.py nemo` on Linux, or `py -3.12 setup_env.py vibe` on Windows. Their dependency lists are `requirements-vibe.txt` and `requirements-nemo.txt`; shared notebook dependencies are in `requirements-common.txt`. The setup script creates the venv, installs CUDA 12.8 PyTorch and the route requirements, checks dependency consistency, and registers a named Jupyter kernel. Upstream Git heads can change; after a successful run, save `pip freeze` outside this repository to record exact versions. NeMo may require Hugging Face access; use `hf auth login` on Alex's machine if loading returns 401/403.
 
@@ -64,6 +64,8 @@ Open the notebook with its matching kernel, put an extracted local MP4 path in i
 ## Denoising and outputs
 
 `DENOISE=False` is the baseline. `DENOISE=True` runs FFmpeg's [afftdn](https://ffmpeg.org/ffmpeg-filters.html#afftdn) FFT denoiser with `nr=12` dB by default. `NOISE_REDUCTION_DB` accepts 1–30; switch denoising off with `DENOISE=False`. This is a configurable baseline filter, not a validated trauma-room denoising method; compare both branches by listening and checking word and speaker accuracy. `audio_16k_mono_original.wav`, `audio_16k_mono_model.wav`, and `input_manifest.json` preserve the comparison and input hash. Other files include raw model output, a common CSV and readable transcript, and `run_summary.json`. NeMo also writes diarization CSV/RTTM, ASR JSON, and word alignment CSV.
+
+Notebook audio players embed only the selected short excerpt in cell output. **Clear all notebook outputs before committing or uploading** a notebook that you ran on Aimbient data. Full audio, HTML timelines, transcripts, and model outputs stay under Git-ignored `runs/`.
 
 Speaker IDs are anonymous and local to a recording. NeMo assigns words to speaker intervals by time overlap; overlap or weak matching is flagged `AMBIGUOUS`/`UNKNOWN`. These outputs do not establish a clinician's identity or role. The `.gitignore` excludes `runs/`, media, model weights, and environment files; check `git status` before uploading, and do not upload patient recordings or derived transcripts without project authorization.
 
@@ -82,6 +84,6 @@ Speaker IDs are anonymous and local to a recording. NeMo assigns words to speake
 
 ## Validation status
 
-The JSON notebooks and Python sources are syntax checked locally. The selected 19-minute-59-second Aimbient MP4 was extracted from its ZIP and converted with the bundled FFmpeg both with denoising off and on. Both runs produced 16 kHz mono WAVs and local audio comparison pages. Browser listening remains for the user. Model downloads and GPU inference have not been attempted in this preparation-only pass.
+The JSON notebooks and Python sources are syntax checked locally. The selected 19-minute-59-second Aimbient MP4 was extracted from its ZIP and converted with the bundled FFmpeg both with denoising off and on. Both runs produced 16 kHz mono WAVs and local audio comparison pages. The revised MOSS notebook completed Run All with two inline audio players and model inference skipped. All three timeline routes generated HTML from synthetic speaker turns; actual model timelines and listening quality still need review after inference.
 
 Upstream interfaces: [MOSS](https://github.com/OpenMOSS/MOSS-Transcribe-Diarize), [VibeVoice](https://github.com/microsoft/VibeVoice), [Nemotron-3 model card](https://huggingface.co/nvidia/Nemotron-3-Diarization), [Faster Whisper CUDA notes](https://github.com/SYSTRAN/faster-whisper).

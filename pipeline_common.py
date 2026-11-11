@@ -6,6 +6,7 @@ import csv
 import hashlib
 import html
 import json
+import math
 import re
 import shutil
 import subprocess
@@ -180,6 +181,137 @@ audio{{width:100%}}section{{margin:2rem 0}}</style></head><body>
     destination = run_dir / "audio_preview.html"
     destination.write_text(page, encoding="utf-8")
     return destination
+
+
+def make_inline_audio_clips(run_dir: Path, start_seconds: float = 0,
+                            duration_seconds: float = 20) -> tuple[Path, Path]:
+    """Bound notebook-embedded audio to a short selected excerpt."""
+    if start_seconds < 0 or not 0 < duration_seconds <= 60:
+        raise ValueError("Preview start must be >= 0 and duration must be 0..60 seconds")
+    paths = []
+    for source_name, target_name in (
+        ("audio_16k_mono_original.wav", "preview_original.wav"),
+        ("audio_16k_mono_model.wav", "preview_model.wav"),
+    ):
+        source = run_dir / source_name
+        info = audio_info(source)
+        if start_seconds >= info["duration_seconds"]:
+            raise ValueError(f"Preview start exceeds audio duration: {info['duration_seconds']:.2f}s")
+        target = run_dir / target_name
+        with wave.open(str(source), "rb") as reader, wave.open(str(target), "wb") as writer:
+            writer.setparams(reader.getparams())
+            reader.setpos(int(start_seconds * info["sample_rate"]))
+            remaining = min(math.ceil(duration_seconds * info["sample_rate"]),
+                            reader.getnframes() - reader.tell())
+            writer.writeframes(reader.readframes(remaining))
+        paths.append(target)
+    return paths[0], paths[1]
+
+
+def render_speaker_timeline(run_dir: Path, rows: list[dict], route: str,
+                            source_name: str, diarization: list[dict] | None = None):
+    """Build the same three-panel Plotly timeline for all model routes."""
+    import numpy as np
+    import plotly.graph_objects as go
+    from plotly.subplots import make_subplots
+
+    original = run_dir / "audio_16k_mono_original.wav"
+    model_audio = run_dir / "audio_16k_mono_model.wav"
+    info = audio_info(original)
+    audio_info(model_audio)
+    duration = info["duration_seconds"]
+    total_frames = round(duration * info["sample_rate"])
+    bin_frames = max(1, math.ceil(total_frames / 6000))
+    times, low, high = [], [], []
+    with wave.open(str(original), "rb") as reader:
+        frame_index = 0
+        while chunk := reader.readframes(bin_frames):
+            values = np.frombuffer(chunk, dtype="<i2")
+            if values.size:
+                times.append((frame_index + values.size / 2) / info["sample_rate"])
+                low.append(float(values.min()) / 32768)
+                high.append(float(values.max()) / 32768)
+                frame_index += values.size
+
+    activities = diarization if diarization is not None else rows
+    speakers = sorted({str(row.get("speaker", row.get("model_speaker", "UNKNOWN")))
+                       for row in activities} |
+                      {str(row.get("model_speaker", "UNKNOWN")) for row in rows})
+    palette = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728",
+               "#9467bd", "#8c564b", "#e377c2", "#17becf"]
+    colors = {speaker: palette[index % len(palette)]
+              for index, speaker in enumerate(speakers)}
+    colors.update({"UNKNOWN": "#777777", "AMBIGUOUS": "#d89019"})
+    fig = make_subplots(
+        rows=3, cols=1, shared_xaxes=True,
+        row_heights=[0.20, 0.45, 0.35], vertical_spacing=0.07,
+        subplot_titles=("Original audio waveform", f"{route} speaker activity",
+                        "Speaker-attributed transcript"),
+    )
+    fig.add_trace(go.Scatter(
+        x=times, y=high, mode="lines", line=dict(color="#666666", width=0.7),
+        name="Audio", hoverinfo="skip",
+    ), row=1, col=1)
+    fig.add_trace(go.Scatter(
+        x=times, y=low, mode="lines", fill="tonexty",
+        fillcolor="rgba(100,100,100,0.25)", line=dict(color="#666666", width=0.7),
+        showlegend=False, hovertemplate="%{x:.2f} s<extra></extra>",
+    ), row=1, col=1)
+
+    for speaker in speakers:
+        activity = [row for row in activities
+                    if str(row.get("speaker", row.get("model_speaker", "UNKNOWN"))) == speaker]
+        if activity:
+            custom = [[float(row["start_seconds"]), float(row["end_seconds"])]
+                      for row in activity]
+            fig.add_trace(go.Bar(
+                x=[max(0.0, end - start) for start, end in custom],
+                base=[start for start, _ in custom], y=[speaker] * len(activity),
+                orientation="h", width=0.7, marker_color=colors[speaker],
+                name=speaker, customdata=custom,
+                hovertemplate=(f"<b>{html.escape(speaker)}</b><br>"
+                               "%{customdata[0]:.2f}–%{customdata[1]:.2f} s<extra></extra>"),
+            ), row=2, col=1)
+        turns = [row for row in rows if str(row.get("model_speaker", "UNKNOWN")) == speaker]
+        if turns:
+            custom = [[float(row["start_seconds"]), float(row["end_seconds"]),
+                       html.escape(str(row.get("text", ""))),
+                       html.escape(str(row.get("review_reason", "")))] for row in turns]
+            fig.add_trace(go.Bar(
+                x=[max(0.0, item[1] - item[0]) for item in custom],
+                base=[item[0] for item in custom], y=["Transcript"] * len(turns),
+                orientation="h", width=0.7,
+                marker=dict(color=colors[speaker],
+                            line=dict(color=["#e6a23c" if item[3] else "white" for item in custom],
+                                      width=2)),
+                name=f"Text: {speaker}", showlegend=False, customdata=custom,
+                hovertemplate=(f"<b>{html.escape(speaker)}</b><br>"
+                               "%{customdata[0]:.2f}–%{customdata[1]:.2f} s"
+                               "<br>%{customdata[2]}<br>Review: %{customdata[3]}<extra></extra>"),
+            ), row=3, col=1)
+    fig.update_layout(
+        title=f"{html.escape(source_name)}: {html.escape(route)} transcript + diarization",
+        height=850, barmode="overlay", hovermode="closest", legend_title="Model speaker",
+    )
+    fig.update_yaxes(title_text="Amplitude", row=1, col=1)
+    fig.update_yaxes(title_text="Speaker ID", row=2, col=1)
+    fig.update_xaxes(title_text="Time (seconds)", range=[0, duration], row=3, col=1)
+    if not rows:
+        fig.add_annotation(text="No parsed transcript turns; inspect raw model output",
+                           x=0.5, y=0.12, xref="paper", yref="paper", showarrow=False)
+    timeline_path = run_dir / f"{route}_speaker_timeline.html"
+    page = (
+        '<!doctype html><html><head><meta charset="utf-8"><title>Speaker timeline</title></head><body>'
+        f'<h2>{html.escape(source_name)}: draft speaker timeline</h2>'
+        '<p>Original extracted audio</p><audio controls preload="metadata" '
+        'src="audio_16k_mono_original.wav" style="width:100%"></audio>'
+        '<p>Model input audio</p><audio controls preload="metadata" '
+        'src="audio_16k_mono_model.wav" style="width:100%"></audio>'
+        + fig.to_html(full_html=False, include_plotlyjs=True)
+        + '</body></html>'
+    )
+    timeline_path.write_text(page, encoding="utf-8")
+    return fig, timeline_path
 
 
 def gpu_preflight() -> tuple[object, dict]:

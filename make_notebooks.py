@@ -31,7 +31,7 @@ def write(name, cells):
 
 INTRO = """# {title}
 
-Run top to bottom in a **fresh local Jupyter kernel** on Alex's Linux 5090 machine. Install the matching environment from README first. Set `INPUT_FILE` to one local audio/video file. `DENOISE=True` applies FFmpeg `afftdn`; `False` copies the normalized WAV unchanged. Both versions and the input hash are saved under `runs/`.
+Run top to bottom in a **fresh local Jupyter kernel** with the matching route environment from README. Put one extracted audio/video file path in ignored `local_config.json` or set `TRAUMA_INPUT_FILE`. `DENOISE=True` applies FFmpeg `afftdn`; `False` copies the normalized WAV unchanged. Both versions and the input hash are saved under `runs/`. Section 2 provides short inline audio players and a full-recording HTML comparison.
 
 Outputs are draft anonymous speaker labels, not verified identities or clinical roles. Check the audio before interpreting them. No input recordings or outputs belong in Git.
 """
@@ -40,7 +40,8 @@ SETTINGS = """from pathlib import Path
 import sys
 import json
 import os
-from pipeline_common import prepare_audio, gpu_preflight, save_turns, save_summary, write_audio_preview
+from pipeline_common import (prepare_audio, gpu_preflight, save_turns, save_summary,
+                             write_audio_preview, make_inline_audio_clips)
 
 # Prefer an environment variable or ignored local_config.json to keep private paths out of Git.
 INPUT_FILE = os.environ.get("TRAUMA_INPUT_FILE", "")
@@ -50,6 +51,8 @@ OUTPUT_ROOT = "runs"
 AUDIO_STREAM = 0
 DENOISE = False  # True / False
 NOISE_REDUCTION_DB = 12  # FFmpeg afftdn nr; 1..30; only used if DENOISE=True
+PREVIEW_START_SECONDS = 0  # choose where to listen in the recording
+PREVIEW_DURATION_SECONDS = 20  # 1..60; bounded notebook audio output
 
 if not INPUT_FILE:
     raise ValueError("Set TRAUMA_INPUT_FILE or create ignored local_config.json with input_file")
@@ -67,6 +70,16 @@ print(f"Denoising: {manifest['denoise_filter'] or 'off'}")
 print(f"Output: {run_dir}")
 preview_path = write_audio_preview(run_dir, denoise=DENOISE)
 print(f"Open this file in a browser to compare both audio players: {preview_path}")
+preview_original, preview_model = make_inline_audio_clips(
+    run_dir, start_seconds=PREVIEW_START_SECONDS,
+    duration_seconds=PREVIEW_DURATION_SECONDS,
+)
+from IPython.display import Audio, Markdown, display
+display(Markdown(f"**Original audio** — {PREVIEW_START_SECONDS}s to "
+                 f"{PREVIEW_START_SECONDS + PREVIEW_DURATION_SECONDS}s"))
+display(Audio(filename=str(preview_original)))
+display(Markdown(f"**Model input** — denoise {'on' if DENOISE else 'off'}"))
+display(Audio(filename=str(preview_model)))
 """
 
 MOSS_INFER = """import json
@@ -280,6 +293,34 @@ print(f"{len(rows)} turns saved in {run_dir}; review flags are in the CSV")
 rows[:10]
 """
 
+TIMELINE_MOSS = """if RUN_MODEL:
+    from pipeline_common import render_speaker_timeline
+    fig, timeline_path = render_speaker_timeline(
+        run_dir, rows, route="moss", source_name=Path(INPUT_FILE).name,
+    )
+    fig.show(config={"scrollZoom": True})
+    print("Interactive timeline:", timeline_path)
+else:
+    print("Timeline skipped: set RUN_MODEL=True after installing MOSS and rerun the notebook.")
+"""
+
+TIMELINE_VIBE = """from pipeline_common import render_speaker_timeline
+fig, timeline_path = render_speaker_timeline(
+    run_dir, rows, route="vibevoice", source_name=Path(INPUT_FILE).name,
+)
+fig.show(config={"scrollZoom": True})
+print("Interactive timeline:", timeline_path)
+"""
+
+TIMELINE_NEMO = """from pipeline_common import render_speaker_timeline
+fig, timeline_path = render_speaker_timeline(
+    run_dir, rows, route="nemo_fw", source_name=Path(INPUT_FILE).name,
+    diarization=diar_rows,
+)
+fig.show(config={"scrollZoom": True})
+print("Interactive timeline:", timeline_path)
+"""
+
 
 MOSS_SETTINGS = SETTINGS.replace(
     "DENOISE = False  # True / False",
@@ -289,7 +330,7 @@ MOSS_SETTINGS = SETTINGS.replace(
 write("01_MOSS.ipynb", [
     md("""# MOSS video/audio preparation and optional inference
 
-Use the local `Trauma MOSS` kernel or `.venv-moss/Scripts/python.exe` on Windows. With `RUN_MODEL=False` (default), **Run All** only extracts audio, optionally denoises it, and creates `audio_preview.html` with two players. This path needs `imageio-ffmpeg`, not PyTorch or a GPU. Set `RUN_MODEL=True` later when the full MOSS environment is installed.
+Use the local `Trauma MOSS prep` kernel or `.venv-moss/Scripts/python.exe` on Windows. With `RUN_MODEL=False` (default), **Run All** extracts audio, optionally denoises it, and shows short original/processed players in section 2. It also creates `audio_preview.html` with full-recording players. This path needs `imageio-ffmpeg`, not PyTorch or a GPU. Set `RUN_MODEL=True` later when the full MOSS environment is installed; the last cell then renders and saves the three-panel timeline.
 
 Put a local absolute MP4 path in ignored `local_config.json` as `{"input_file": "..."}` or set `TRAUMA_INPUT_FILE`. Keep source recordings and `runs/` out of Git. Speaker labels from later inference remain anonymous drafts.
 """),
@@ -298,12 +339,16 @@ Put a local absolute MP4 path in ignored `local_config.json` as `{"input_file": 
     md("## 3. Optional MOSS inference"),
     code("if RUN_MODEL:\n" + indent(MOSS_INFER, "    ") +
          "else:\n    print('Model inference skipped. Open audio_preview.html to listen first.')\n"),
+    md("## 4. Three-panel waveform, speaker activity, and transcript timeline"),
+    code(TIMELINE_MOSS),
 ])
 write("02_VibeVoice.ipynb", [
     md(INTRO.format(title="VibeVoice ASR and speaker turns")),
     md("## 1. Settings and GPU check"), code('ROUTE = "vibevoice"\n' + SETTINGS),
     md("## 2. Convert video/audio to WAV; optionally denoise"), code(PREP),
     md("## 3. Infer and save results"), code(VIBE_INFER),
+    md("## 4. Three-panel waveform, speaker activity, and transcript timeline"),
+    code(TIMELINE_VIBE),
 ])
 write("03_NeMo_FasterWhisper.ipynb", [
     md(INTRO.format(title="NeMo diarization and Faster Whisper ASR")),
@@ -312,4 +357,6 @@ write("03_NeMo_FasterWhisper.ipynb", [
     md("## 3. NeMo diarization"), code(NEMO_INFER),
     md("## 4. Faster Whisper in a clean process"), code(ASR_INFER),
     md("## 5. Time align words and save results"), code(ALIGN),
+    md("## 6. Three-panel waveform, diarization, and transcript timeline"),
+    code(TIMELINE_NEMO),
 ])
