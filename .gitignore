@@ -12,6 +12,7 @@ data/
 *.pt
 *.ckpt
 .env
+local_config.json
 .venv*/
 __pycache__/
 .ipynb_checkpoints/

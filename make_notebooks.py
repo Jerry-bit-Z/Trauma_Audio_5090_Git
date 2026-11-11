@@ -1,18 +1,24 @@
 """Rebuild the three local Jupyter notebooks from inspectable cell sources."""
 
 import json
+import hashlib
 from pathlib import Path
+from textwrap import indent
 
 
 ROOT = Path(__file__).resolve().parent
 
 
 def md(source):
-    return {"cell_type": "markdown", "metadata": {}, "source": source.splitlines(keepends=True)}
+    cell_id = "md-" + hashlib.sha1(source.encode("utf-8")).hexdigest()[:12]
+    return {"cell_type": "markdown", "id": cell_id,
+            "metadata": {}, "source": source.splitlines(keepends=True)}
 
 
 def code(source):
-    return {"cell_type": "code", "execution_count": None, "metadata": {},
+    cell_id = "code-" + hashlib.sha1(source.encode("utf-8")).hexdigest()[:12]
+    return {"cell_type": "code", "id": cell_id,
+            "execution_count": None, "metadata": {},
             "outputs": [], "source": source.splitlines(keepends=True)}
 
 
@@ -32,16 +38,21 @@ Outputs are draft anonymous speaker labels, not verified identities or clinical 
 
 SETTINGS = """from pathlib import Path
 import sys
-from pipeline_common import prepare_audio, gpu_preflight, save_turns, save_summary
+import json
+import os
+from pipeline_common import prepare_audio, gpu_preflight, save_turns, save_summary, write_audio_preview
 
-INPUT_FILE = "/absolute/path/to/your/audio_or_video.mp4"  # EDIT
+# Prefer an environment variable or ignored local_config.json to keep private paths out of Git.
+INPUT_FILE = os.environ.get("TRAUMA_INPUT_FILE", "")
+if not INPUT_FILE and Path("local_config.json").is_file():
+    INPUT_FILE = json.loads(Path("local_config.json").read_text(encoding="utf-8")).get("input_file", "")
 OUTPUT_ROOT = "runs"
 AUDIO_STREAM = 0
 DENOISE = False  # True / False
 NOISE_REDUCTION_DB = 12  # FFmpeg afftdn nr; 1..30; only used if DENOISE=True
 
-if INPUT_FILE.startswith("/absolute/path/to/"):
-    raise ValueError("Set INPUT_FILE to an existing local audio/video file before Run All")
+if not INPUT_FILE:
+    raise ValueError("Set TRAUMA_INPUT_FILE or create ignored local_config.json with input_file")
 print("Notebook Python:", sys.executable)
 print("Route:", ROUTE, "| denoise:", DENOISE)
 """
@@ -54,6 +65,8 @@ duration_seconds = manifest["duration_seconds"]
 print(f"Model input: {model_wav} ({duration_seconds:.2f}s)")
 print(f"Denoising: {manifest['denoise_filter'] or 'off'}")
 print(f"Output: {run_dir}")
+preview_path = write_audio_preview(run_dir, denoise=DENOISE)
+print(f"Open this file in a browser to compare both audio players: {preview_path}")
 """
 
 MOSS_INFER = """import json
@@ -268,11 +281,23 @@ rows[:10]
 """
 
 
+MOSS_SETTINGS = SETTINGS.replace(
+    "DENOISE = False  # True / False",
+    "DENOISE = False  # True / False\nRUN_MODEL = False  # leave False for video/audio/denoising checks",
+)
+
 write("01_MOSS.ipynb", [
-    md(INTRO.format(title="MOSS joint transcription and diarization")),
-    md("## 1. Settings and GPU check"), code('ROUTE = "moss"\n' + SETTINGS),
-    md("## 2. Convert video/audio to WAV; optionally denoise"), code(PREP),
-    md("## 3. Infer and save results"), code(MOSS_INFER),
+    md("""# MOSS video/audio preparation and optional inference
+
+Use the local `Trauma MOSS` kernel or `.venv-moss/Scripts/python.exe` on Windows. With `RUN_MODEL=False` (default), **Run All** only extracts audio, optionally denoises it, and creates `audio_preview.html` with two players. This path needs `imageio-ffmpeg`, not PyTorch or a GPU. Set `RUN_MODEL=True` later when the full MOSS environment is installed.
+
+Put a local absolute MP4 path in ignored `local_config.json` as `{"input_file": "..."}` or set `TRAUMA_INPUT_FILE`. Keep source recordings and `runs/` out of Git. Speaker labels from later inference remain anonymous drafts.
+"""),
+    md("## 1. Select local input and preprocessing options"), code('ROUTE = "moss"\n' + MOSS_SETTINGS),
+    md("## 2. Convert video/audio to WAV and create a listening preview"), code(PREP),
+    md("## 3. Optional MOSS inference"),
+    code("if RUN_MODEL:\n" + indent(MOSS_INFER, "    ") +
+         "else:\n    print('Model inference skipped. Open audio_preview.html to listen first.')\n"),
 ])
 write("02_VibeVoice.ipynb", [
     md(INTRO.format(title="VibeVoice ASR and speaker turns")),

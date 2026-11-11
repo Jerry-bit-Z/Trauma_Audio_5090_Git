@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import html
 import json
 import re
 import shutil
@@ -157,6 +158,28 @@ def save_summary(run_dir: Path, **details: object) -> None:
     (run_dir / "run_summary.json").write_text(
         json.dumps(details, ensure_ascii=False, indent=2, default=str), encoding="utf-8"
     )
+
+
+def write_audio_preview(run_dir: Path, *, denoise: bool) -> Path:
+    """Create an offline comparison page without embedding audio in the notebook."""
+    original = run_dir / "audio_16k_mono_original.wav"
+    processed = run_dir / "audio_16k_mono_model.wav"
+    audio_info(original)
+    audio_info(processed)
+    label = "FFmpeg afftdn enabled" if denoise else "Denoising off (same audio)"
+    page = f"""<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Audio comparison</title>
+<style>body{{font:16px system-ui;max-width:800px;margin:2rem auto;padding:0 1rem}}
+audio{{width:100%}}section{{margin:2rem 0}}</style></head><body>
+<h1>Audio extraction and denoising check</h1>
+<p>{html.escape(label)}. Listen to the same time position in both players.</p>
+<section><h2>Extracted original</h2><audio controls preload="metadata" src="{original.name}"></audio></section>
+<section><h2>Model input</h2><audio controls preload="metadata" src="{processed.name}"></audio></section>
+<p>Both WAV files are stored beside this page. Do not add this run folder to Git.</p>
+</body></html>"""
+    destination = run_dir / "audio_preview.html"
+    destination.write_text(page, encoding="utf-8")
+    return destination
 
 
 def gpu_preflight() -> tuple[object, dict]:

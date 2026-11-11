@@ -2,7 +2,27 @@
 
 Three independent Jupyter paths: **MOSS**, **VibeVoice ASR**, and **NeMo Nemotron-3-Diarization + Faster Whisper**. Each accepts a local audio/video file, extracts one audio stream to 16 kHz mono PCM, optionally applies FFmpeg `afftdn` denoising, and writes a common `speaker_attributed_turns.csv` format. The notebooks are new local editions based on the corresponding Colab notebooks in `../NoteBooks/`; the original upload cell and other Colab files are untouched.
 
-## Setup: MOSS first
+## First: local video extraction and listening check (no GPU)
+
+In Windows Git Bash, from this repository root:
+
+```bash
+source .venv-moss/Scripts/activate
+python setup_env.py moss --prep-only
+jupyter lab
+```
+
+The setup command installs only `requirements-prep.txt` (Jupyter, kernel, and bundled FFmpeg). On a fresh Windows clone without `.venv-moss`, install Python 3.12 first and run `py -3.12 setup_env.py moss --prep-only`; use the full Python path if the `py` launcher is unavailable. In VS Code, choose the **Trauma MOSS prep** kernel or `.venv-moss/Scripts/python.exe`.
+
+Extract a video from its ZIP archive before setting it as input. Put the MP4's absolute path in an ignored `local_config.json` beside the notebooks, using forward slashes in JSON even on Windows:
+
+```json
+{"input_file": "D:/path/to/extracted/video.mp4"}
+```
+
+The current checkout already has an ignored local config pointing to the extracted selected clip. `01_MOSS.ipynb` defaults to `RUN_MODEL=False`. Set `DENOISE=False` or `True`, then **Run All**. Open the printed `audio_preview.html` in a browser; it has players for the original extracted audio and the audio sent to the model. The HTML and WAV files are in `runs/`, which Git ignores. Change `DENOISE` and rerun to compare two separate run folders. This step needs no PyTorch or GPU.
+
+## Later: MOSS model inference on Alex's GPU
 
 Install Python 3.12, Git, and an NVIDIA driver on Alex's 5090 machine. System FFmpeg is optional: `requirements-common.txt` installs `imageio-ffmpeg`, whose bundled binary is used when `ffmpeg` is absent from `PATH`. Do not place recordings in this Git directory. RTX 5090 needs a CUDA 12.8+ PyTorch wheel; the notebook runs a real CUDA matrix multiplication before model loading. If the PyTorch command changes, use the [official installer](https://pytorch.org/get-started/locally/).
 
@@ -22,7 +42,7 @@ py -3.12 setup_env.py moss
 jupyter lab
 ```
 
-For **Git Bash on Windows**, use `Scripts`, not Linux's `bin`. In the current checkout `.venv-moss` already exists, so these commands work without the Windows `py` launcher:
+For **Git Bash on Windows**, use `Scripts`, not Linux's `bin`:
 
 ```bash
 source .venv-moss/Scripts/activate
@@ -35,11 +55,11 @@ jupyter lab
 
 Run each line only after the previous installation/check succeeds. The final CUDA value must be `True` for GPU inference. On a fresh Windows clone with no `.venv-moss`, install Python 3.12 first and run `py -3.12 setup_env.py moss` (or use the full path to that Python executable). A Windows venv cannot be moved to Linux; recreate it on Alex's machine.
 
-In VS Code, select the **Trauma MOSS** kernel for `01_MOSS.ipynb` after full setup. The current Windows checkout contains a `.venv-moss` directory with `ipykernel` and the bundled FFmpeg installed for local video-conversion checks; its large PyTorch and model dependencies have **not** been installed. To use this partial environment in VS Code, choose **Select Kernel → Python Environments → `.venv-moss/Scripts/python.exe`**. It can run sections 1–2, then the inference section correctly stops until a CUDA GPU and full setup are available. A fresh clone on Alex's computer must run `setup_env.py moss` again; virtual environments are intentionally excluded from Git.
+After full setup, choose the **Trauma MOSS** kernel and change `RUN_MODEL=True` to run inference. The current Windows checkout has the preparation dependencies only; its PyTorch and model dependencies have **not** been installed. A fresh clone on Alex's computer must run `setup_env.py moss` again; virtual environments are intentionally excluded from Git.
 
 The root `requirements.txt` defaults to MOSS and includes `requirements-moss.txt`. The other routes need **separate** environments because [MOSS requires Transformers 5.x](https://github.com/OpenMOSS/MOSS-Transcribe-Diarize/blob/main/pyproject.toml) and [VibeVoice declares Transformers 4.x](https://github.com/microsoft/VibeVoice/blob/main/pyproject.toml). When ready, run `python3.12 setup_env.py vibe` or `python3.12 setup_env.py nemo` on Linux, or `py -3.12 setup_env.py vibe` on Windows. Their dependency lists are `requirements-vibe.txt` and `requirements-nemo.txt`; shared notebook dependencies are in `requirements-common.txt`. The setup script creates the venv, installs CUDA 12.8 PyTorch and the route requirements, checks dependency consistency, and registers a named Jupyter kernel. Upstream Git heads can change; after a successful run, save `pip freeze` outside this repository to record exact versions. NeMo may require Hugging Face access; use `hf auth login` on Alex's machine if loading returns 401/403.
 
-Open the notebook with its matching kernel, set `INPUT_FILE` to an absolute path outside the repo, set `DENOISE` to `True` or `False`, and use **Run All**. `AUDIO_STREAM` selects the video audio track. NeMo defaults to English Faster Whisper ASR; edit `ASR_LANGUAGE` in its fourth section if needed. MOSS and VibeVoice can hit `MAX_NEW_TOKENS` on long clips; check `run_summary.json` and `*_raw.txt`, then increase the limit or split the recording if truncated. Start with a short, authorized public clip to verify the environment.
+Open the notebook with its matching kernel, put an extracted local MP4 path in ignored `local_config.json`, set `DENOISE` to `True` or `False`, and use **Run All**. `AUDIO_STREAM` selects the video audio track. NeMo defaults to English Faster Whisper ASR; edit `ASR_LANGUAGE` in its fourth section if needed. MOSS and VibeVoice can hit `MAX_NEW_TOKENS` on long clips; check `run_summary.json` and `*_raw.txt`, then increase the limit or split the recording if truncated. Start with a short, authorized public clip to verify a new model environment.
 
 ## Denoising and outputs
 
@@ -62,6 +82,6 @@ Speaker IDs are anonymous and local to a recording. NeMo assigns words to speake
 
 ## Validation status
 
-The JSON notebooks and Python sources are syntax checked locally. The current Windows checkout has no detected NVIDIA GPU. A synthetic MP4 was converted with the bundled FFmpeg both with denoising off and on; sections 1–2 of the MOSS notebook were also run with that video. Model downloads and 5090 inference still require Alex's machine. Until a short clip completes through each kernel, these are prepared handoff notebooks, not confirmed one-pass GPU runs.
+The JSON notebooks and Python sources are syntax checked locally. The selected 19-minute-59-second Aimbient MP4 was extracted from its ZIP and converted with the bundled FFmpeg both with denoising off and on. Both runs produced 16 kHz mono WAVs and local audio comparison pages. Browser listening remains for the user. Model downloads and GPU inference have not been attempted in this preparation-only pass.
 
 Upstream interfaces: [MOSS](https://github.com/OpenMOSS/MOSS-Transcribe-Diarize), [VibeVoice](https://github.com/microsoft/VibeVoice), [Nemotron-3 model card](https://huggingface.co/nvidia/Nemotron-3-Diarization), [Faster Whisper CUDA notes](https://github.com/SYSTRAN/faster-whisper).

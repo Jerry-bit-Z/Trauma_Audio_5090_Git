@@ -1,6 +1,6 @@
 """Create one isolated notebook environment per model route.
 
-Run with Python 3.12: python setup_env.py vibe|moss|nemo [--create-only]
+Run with Python 3.12: python setup_env.py vibe|moss|nemo [--prep-only]
 """
 
 from __future__ import annotations
@@ -29,8 +29,11 @@ def run(args: list[str]) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("route", choices=ROUTES)
-    parser.add_argument("--create-only", action="store_true",
-                        help="Create the venv without downloading large GPU/model dependencies")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--create-only", action="store_true",
+                      help="Create the venv without installing any dependencies")
+    mode.add_argument("--prep-only", action="store_true",
+                      help="Install notebook, FFmpeg, and playback dependencies only; no PyTorch/model")
     args = parser.parse_args()
     if sys.version_info[:2] != (3, 12):
         raise SystemExit("Use Python 3.12 to create these environments")
@@ -52,6 +55,13 @@ def main() -> None:
         print(f"Created {env_dir}; model dependencies and kernel were not installed by this command")
         return
     run([str(env_python), "-m", "pip", "install", "--upgrade", "pip", "setuptools", "wheel"])
+    if args.prep_only:
+        run([str(env_python), "-m", "pip", "install", "-r", str(ROOT / "requirements-prep.txt")])
+        run([str(env_python), "-m", "pip", "check"])
+        run([str(env_python), "-m", "ipykernel", "install", "--user",
+             "--name", f"trauma-{args.route}", "--display-name", f"{display} prep"])
+        print(f"Ready for audio preparation only: select the '{display} prep' kernel")
+        return
     # RTX 5090 needs a CUDA 12.8+ PyTorch wheel. Install it before other packages.
     torch_packages = ["torch", "torchvision", "torchaudio"]
     run([str(env_python), "-m", "pip", "install", "--upgrade", *torch_packages,

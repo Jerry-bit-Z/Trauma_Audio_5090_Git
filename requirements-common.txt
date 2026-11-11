@@ -1,7 +1,5 @@
-# Shared notebook runtime and portable FFmpeg binary (works without system ffmpeg).
-ipykernel>=6.29,<8
-jupyterlab>=4.2,<5
-imageio-ffmpeg>=0.6,<1
+# Shared notebook and preprocessing runtime.
+-r requirements-prep.txt
 # setup_env.py installs CUDA 12.8 wheels first; these constraints keep them present.
 torch>=2.8
 torchaudio>=2.8
