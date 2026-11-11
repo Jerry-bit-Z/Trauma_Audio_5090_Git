@@ -1,0 +1,4 @@
+-r requirements-common.txt
+# VibeVoice currently requires Transformers 4.x; keep it out of the MOSS venv.
+transformers>=4.51.3,<5
+git+https://github.com/microsoft/VibeVoice.git

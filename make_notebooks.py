@@ -31,6 +31,7 @@ Outputs are draft anonymous speaker labels, not verified identities or clinical 
 """
 
 SETTINGS = """from pathlib import Path
+import sys
 from pipeline_common import prepare_audio, gpu_preflight, save_turns, save_summary
 
 INPUT_FILE = "/absolute/path/to/your/audio_or_video.mp4"  # EDIT
@@ -41,8 +42,8 @@ NOISE_REDUCTION_DB = 12  # FFmpeg afftdn nr; 1..30; only used if DENOISE=True
 
 if INPUT_FILE.startswith("/absolute/path/to/"):
     raise ValueError("Set INPUT_FILE to an existing local audio/video file before Run All")
-device, gpu_info = gpu_preflight()
-print(gpu_info)
+print("Notebook Python:", sys.executable)
+print("Route:", ROUTE, "| denoise:", DENOISE)
 """
 
 PREP = """run_dir, model_wav, manifest = prepare_audio(
@@ -57,6 +58,8 @@ print(f"Output: {run_dir}")
 
 MOSS_INFER = """import json
 import time
+device, gpu_info = gpu_preflight()
+print(gpu_info)
 import torch
 from transformers import AutoModelForCausalLM, AutoProcessor
 from moss_transcribe_diarize import parse_transcript
@@ -92,6 +95,8 @@ rows[:10]
 
 VIBE_INFER = """import json
 import time
+device, gpu_info = gpu_preflight()
+print(gpu_info)
 import torch
 from vibevoice.modular.modeling_vibevoice_asr import VibeVoiceASRForConditionalGeneration
 from vibevoice.processor.vibevoice_asr_processor import VibeVoiceASRProcessor
@@ -149,6 +154,8 @@ import os
 import subprocess
 import sys
 import time
+device, gpu_info = gpu_preflight()
+print(gpu_info)
 import torch
 from nemo.collections.asr.models import SortformerEncLabelModel
 

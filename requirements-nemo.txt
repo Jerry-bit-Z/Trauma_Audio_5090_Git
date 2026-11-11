@@ -1,0 +1,9 @@
+-r requirements-common.txt
+# The setup script upgrades NeMo to its source tree after installing dependencies.
+nemo_toolkit[asr]
+Cython
+packaging
+lhotse==2.0.0a6
+faster-whisper
+nvidia-cublas-cu12; sys_platform == "linux"
+nvidia-cudnn-cu12>=9,<10; sys_platform == "linux"

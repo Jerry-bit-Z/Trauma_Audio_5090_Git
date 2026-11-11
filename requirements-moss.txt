@@ -1,0 +1,4 @@
+-r requirements-common.txt
+# Upstream MOSS package declares its own audio/Transformers dependencies.
+transformers>=5.6,<6
+git+https://github.com/OpenMOSS/MOSS-Transcribe-Diarize.git

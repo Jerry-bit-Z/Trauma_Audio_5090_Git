@@ -20,6 +20,22 @@ def _run(command: list[str]) -> None:
     subprocess.run(command, check=True)
 
 
+def ffmpeg_tools() -> tuple[str, str | None]:
+    """Prefer a system install; fall back to imageio-ffmpeg's bundled binary."""
+    ffmpeg = shutil.which("ffmpeg")
+    ffprobe = shutil.which("ffprobe")
+    if ffmpeg:
+        return ffmpeg, ffprobe
+    try:
+        import imageio_ffmpeg
+        return imageio_ffmpeg.get_ffmpeg_exe(), None
+    except (ImportError, RuntimeError) as exc:
+        raise RuntimeError(
+            "FFmpeg unavailable. Install the route's requirements (imageio-ffmpeg), "
+            "or install system FFmpeg; then select that venv as the notebook kernel."
+        ) from exc
+
+
 def audio_info(path: Path) -> dict:
     with wave.open(str(path), "rb") as handle:
         info = {
@@ -39,35 +55,35 @@ def prepare_audio(source: str, output_root: str, route: str,
                   denoise: bool = False, audio_stream: int = 0,
                   noise_reduction_db: int = 12) -> tuple[Path, Path, dict]:
     """Extract one stream, optionally apply FFmpeg afftdn, and save provenance."""
-    if shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None:
-        raise RuntimeError("ffmpeg and ffprobe must be on PATH")
+    ffmpeg, ffprobe = ffmpeg_tools()
     source_path = Path(source).expanduser().resolve()
     if not source_path.is_file():
         raise FileNotFoundError(source_path)
     if audio_stream < 0 or not 1 <= noise_reduction_db <= 30:
         raise ValueError("audio_stream must be >= 0; noise_reduction_db must be 1..30")
-    probe = subprocess.run(
-        ["ffprobe", "-v", "error", "-show_entries", "stream=index,codec_type",
-         "-of", "json", str(source_path)],
-        capture_output=True, text=True, check=True,
-    )
-    streams = [s for s in json.loads(probe.stdout).get("streams", [])
-               if s.get("codec_type") == "audio"]
-    if audio_stream >= len(streams):
-        raise ValueError(f"audio_stream={audio_stream}; found {len(streams)} audio stream(s)")
+    if ffprobe:
+        probe = subprocess.run(
+            [ffprobe, "-v", "error", "-show_entries", "stream=index,codec_type",
+             "-of", "json", str(source_path)],
+            capture_output=True, text=True, check=True,
+        )
+        streams = [s for s in json.loads(probe.stdout).get("streams", [])
+                   if s.get("codec_type") == "audio"]
+        if audio_stream >= len(streams):
+            raise ValueError(f"audio_stream={audio_stream}; found {len(streams)} audio stream(s)")
 
     safe_stem = re.sub(r"[^A-Za-z0-9_-]+", "_", source_path.stem).strip("_")[:48] or "audio"
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     run_dir = Path(output_root).expanduser().resolve() / f"{safe_stem}_{route}_{stamp}"
     run_dir.mkdir(parents=True, exist_ok=False)
     original_wav = run_dir / "audio_16k_mono_original.wav"
-    _run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
+    _run([ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
           "-i", str(source_path), "-map", f"0:a:{audio_stream}", "-vn",
           "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", str(original_wav)])
     info = audio_info(original_wav)
     model_wav = run_dir / "audio_16k_mono_model.wav"
     if denoise:
-        _run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
+        _run([ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
               "-i", str(original_wav), "-af", f"afftdn=nr={noise_reduction_db}",
               "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", str(model_wav)])
     else:
@@ -83,6 +99,7 @@ def prepare_audio(source: str, output_root: str, route: str,
     manifest = {
         "source_path": str(source_path), "source_sha256": sha256,
         "route": route, "audio_stream": audio_stream,
+        "ffmpeg_executable": ffmpeg,
         "denoise": denoise, "denoise_filter": f"afftdn=nr={noise_reduction_db}" if denoise else None,
         "original_audio": original_wav.name, "model_audio": model_wav.name,
         **info,
@@ -144,7 +161,13 @@ def save_summary(run_dir: Path, **details: object) -> None:
 
 def gpu_preflight() -> tuple[object, dict]:
     """Actually execute a small CUDA kernel to catch unsupported 5090 wheels."""
-    import torch
+    try:
+        import torch
+    except ModuleNotFoundError as exc:
+        raise RuntimeError(
+            "PyTorch is missing from this notebook kernel. Run setup_env.py for this route "
+            "and select its Trauma kernel in Jupyter/VS Code."
+        ) from exc
 
     if not torch.cuda.is_available():
         raise RuntimeError("CUDA is unavailable. Check NVIDIA driver and PyTorch CUDA wheel.")

@@ -1,0 +1,2 @@
+# Default route: MOSS. For RTX 5090, run setup_env.py moss so PyTorch uses CUDA 12.8.
+-r requirements-moss.txt
