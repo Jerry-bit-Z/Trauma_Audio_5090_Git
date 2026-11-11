@@ -22,6 +22,19 @@ py -3.12 setup_env.py moss
 jupyter lab
 ```
 
+For **Git Bash on Windows**, use `Scripts`, not Linux's `bin`. In the current checkout `.venv-moss` already exists, so these commands work without the Windows `py` launcher:
+
+```bash
+source .venv-moss/Scripts/activate
+python --version                 # must say Python 3.12
+python setup_env.py moss         # installs the full MOSS/CUDA environment
+python -m pip check
+python -c "import torch; print(torch.__version__, torch.version.cuda, torch.cuda.is_available())"
+jupyter lab
+```
+
+Run each line only after the previous installation/check succeeds. The final CUDA value must be `True` for GPU inference. On a fresh Windows clone with no `.venv-moss`, install Python 3.12 first and run `py -3.12 setup_env.py moss` (or use the full path to that Python executable). A Windows venv cannot be moved to Linux; recreate it on Alex's machine.
+
 In VS Code, select the **Trauma MOSS** kernel for `01_MOSS.ipynb` after full setup. The current Windows checkout contains a `.venv-moss` directory with `ipykernel` and the bundled FFmpeg installed for local video-conversion checks; its large PyTorch and model dependencies have **not** been installed. To use this partial environment in VS Code, choose **Select Kernel → Python Environments → `.venv-moss/Scripts/python.exe`**. It can run sections 1–2, then the inference section correctly stops until a CUDA GPU and full setup are available. A fresh clone on Alex's computer must run `setup_env.py moss` again; virtual environments are intentionally excluded from Git.
 
 The root `requirements.txt` defaults to MOSS and includes `requirements-moss.txt`. The other routes need **separate** environments because [MOSS requires Transformers 5.x](https://github.com/OpenMOSS/MOSS-Transcribe-Diarize/blob/main/pyproject.toml) and [VibeVoice declares Transformers 4.x](https://github.com/microsoft/VibeVoice/blob/main/pyproject.toml). When ready, run `python3.12 setup_env.py vibe` or `python3.12 setup_env.py nemo` on Linux, or `py -3.12 setup_env.py vibe` on Windows. Their dependency lists are `requirements-vibe.txt` and `requirements-nemo.txt`; shared notebook dependencies are in `requirements-common.txt`. The setup script creates the venv, installs CUDA 12.8 PyTorch and the route requirements, checks dependency consistency, and registers a named Jupyter kernel. Upstream Git heads can change; after a successful run, save `pip freeze` outside this repository to record exact versions. NeMo may require Hugging Face access; use `hf auth login` on Alex's machine if loading returns 401/403.
