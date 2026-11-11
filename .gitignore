@@ -1,0 +1,18 @@
+# Source audio/video, derived audio, transcripts, and model caches may contain sensitive material.
+runs/
+data/
+*.wav
+*.mp3
+*.mp4
+*.mov
+*.m4a
+*.flac
+*.nemo
+*.safetensors
+*.pt
+*.ckpt
+.env
+.venv*/
+__pycache__/
+.ipynb_checkpoints/
+.pytest_cache/
