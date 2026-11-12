@@ -26,6 +26,15 @@ def run(args: list[str]) -> None:
     subprocess.run(args, cwd=ROOT, check=True)
 
 
+def install_notebook_filter() -> None:
+    """Strip notebook outputs (embedded audio, transcripts) whenever a notebook is staged."""
+    if not (ROOT / ".git").exists():
+        return
+    command = f'"{Path(sys.executable).as_posix()}" strip_notebook_outputs.py'
+    run(["git", "config", "filter.strip-notebook-outputs.clean", command])
+    run(["git", "config", "filter.strip-notebook-outputs.required", "true"])
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("route", choices=ROUTES)
@@ -37,6 +46,7 @@ def main() -> None:
     args = parser.parse_args()
     if sys.version_info[:2] != (3, 12):
         raise SystemExit("Use Python 3.12 to create these environments")
+    install_notebook_filter()
     env_name, requirements, display = ROUTES[args.route]
     env_dir = ROOT / env_name
     env_python = env_dir / ("Scripts/python.exe" if os.name == "nt" else "bin/python")

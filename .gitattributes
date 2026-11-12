@@ -1,5 +1,5 @@
 *.py text eol=lf
-*.ipynb text eol=lf
+*.ipynb text eol=lf filter=strip-notebook-outputs
 *.md text eol=lf
 requirements-*.txt text eol=lf
 requirements.txt text eol=lf

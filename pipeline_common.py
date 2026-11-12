@@ -208,9 +208,38 @@ def make_inline_audio_clips(run_dir: Path, start_seconds: float = 0,
     return paths[0], paths[1]
 
 
+def split_wav_chunks(wav_path: Path, out_dir: Path, chunk_seconds: float = 180,
+                     overlap_seconds: float = 10) -> list[dict]:
+    """Cut a PCM WAV into consecutive chunks for models that loop on long inputs.
+
+    Chunk ``i`` covers ``[i * chunk_seconds, (i + 1) * chunk_seconds + overlap_seconds)``.
+    Its "owned" window is ``[i * chunk_seconds, (i + 1) * chunk_seconds)``: when merging,
+    keep only turns that start inside the owned window, so speech crossing a boundary is
+    transcribed whole by the earlier chunk and not duplicated by the next one.
+    """
+    if chunk_seconds <= 0 or overlap_seconds < 0:
+        raise ValueError("chunk_seconds must be > 0 and overlap_seconds >= 0")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    chunks = []
+    with wave.open(str(wav_path), "rb") as reader:
+        rate, total = reader.getframerate(), reader.getnframes()
+        step, extra = round(chunk_seconds * rate), round(overlap_seconds * rate)
+        for index, first in enumerate(range(0, total, step)):
+            count = min(step + extra, total - first)
+            reader.setpos(first)
+            target = out_dir / f"chunk_{index:03d}.wav"
+            with wave.open(str(target), "wb") as writer:
+                writer.setparams(reader.getparams())
+                writer.writeframes(reader.readframes(count))
+            chunks.append(dict(index=index, path=target, offset=first / rate,
+                               owned_end=min(first + step, total) / rate,
+                               end=(first + count) / rate))
+    return chunks
+
+
 def render_speaker_timeline(run_dir: Path, rows: list[dict], route: str,
                             source_name: str, diarization: list[dict] | None = None):
-    """Build the same three-panel Plotly timeline for all model routes."""
+    """Build the same three-panel Plotly timeline for all model routes (shown inline, not saved)."""
     import numpy as np
     import plotly.graph_objects as go
     from plotly.subplots import make_subplots
@@ -299,19 +328,37 @@ def render_speaker_timeline(run_dir: Path, rows: list[dict], route: str,
     if not rows:
         fig.add_annotation(text="No parsed transcript turns; inspect raw model output",
                            x=0.5, y=0.12, xref="paper", yref="paper", showarrow=False)
-    timeline_path = run_dir / f"{route}_speaker_timeline.html"
-    page = (
-        '<!doctype html><html><head><meta charset="utf-8"><title>Speaker timeline</title></head><body>'
-        f'<h2>{html.escape(source_name)}: draft speaker timeline</h2>'
-        '<p>Original extracted audio</p><audio controls preload="metadata" '
-        'src="audio_16k_mono_original.wav" style="width:100%"></audio>'
-        '<p>Model input audio</p><audio controls preload="metadata" '
-        'src="audio_16k_mono_model.wav" style="width:100%"></audio>'
-        + fig.to_html(full_html=False, include_plotlyjs=True)
-        + '</body></html>'
-    )
-    timeline_path.write_text(page, encoding="utf-8")
-    return fig, timeline_path
+    return fig
+
+
+def show_figure(fig, height: int | None = None) -> None:
+    """Display a Plotly figure inline in any Jupyter front end, without writing files.
+
+    The figure goes into an iframe ``srcdoc`` that loads plotly.js from the CDN, so it
+    does not need the jupyterlab-plotly extension in the Jupyter server environment.
+    """
+    from IPython.display import HTML, display
+    page = fig.to_html(full_html=True, include_plotlyjs="cdn",
+                       config={"scrollZoom": True, "responsive": True})
+    height = height or int(fig.layout.height or 600) + 30
+    import warnings
+    with warnings.catch_warnings():  # IPython suggests IFrame, which needs a file/URL
+        warnings.simplefilter("ignore", UserWarning)
+        display(HTML(f'<iframe srcdoc="{html.escape(page, quote=True)}" '
+                     f'style="width:100%;height:{height}px;border:0"></iframe>'))
+
+
+def local_model_dir(repo_id: str, models_root: str = "models") -> Path:
+    """Return a local copy of a Hugging Face model, downloading it once if missing.
+
+    Loading from this folder makes no Hub requests, so runs work offline and
+    without HF_TOKEN. The folder is ignored by Git.
+    """
+    target = Path(models_root) / repo_id.split("/")[-1]
+    if not (target / "config.json").is_file():
+        from huggingface_hub import snapshot_download
+        snapshot_download(repo_id, local_dir=target)
+    return target.resolve()
 
 
 def gpu_preflight() -> tuple[object, dict]:

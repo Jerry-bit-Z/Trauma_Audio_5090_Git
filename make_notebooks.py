@@ -41,7 +41,7 @@ import sys
 import json
 import os
 from pipeline_common import (prepare_audio, gpu_preflight, save_turns, save_summary,
-                             write_audio_preview, make_inline_audio_clips)
+                             write_audio_preview, make_inline_audio_clips, local_model_dir)
 
 # Prefer an environment variable or ignored local_config.json to keep private paths out of Git.
 INPUT_FILE = os.environ.get("TRAUMA_INPUT_FILE", "")
@@ -90,32 +90,62 @@ import torch
 from transformers import AutoModelForCausalLM, AutoProcessor
 from moss_transcribe_diarize import parse_transcript
 from moss_transcribe_diarize.inference_utils import build_transcription_messages, generate_transcription
+from pipeline_common import split_wav_chunks
 
 MODEL_ID = "OpenMOSS-Team/MOSS-Transcribe-Diarize"
-MAX_NEW_TOKENS = 8192
+MODEL_DIR = local_model_dir(MODEL_ID)  # models/MOSS-Transcribe-Diarize; downloads once if missing
+print("Loading model from", MODEL_DIR)
+MAX_NEW_TOKENS = 8192  # per chunk
+CHUNK_SECONDS = 60  # MOSS loops on long or silent inputs; 60 s recovered the most speech
+OVERLAP_SECONDS = 5  # extra audio after each chunk so boundary speech is not cut
 dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
 model = AutoModelForCausalLM.from_pretrained(
-    MODEL_ID, trust_remote_code=True, dtype="auto", attn_implementation="sdpa",
+    MODEL_DIR, trust_remote_code=True, dtype="auto", attn_implementation="sdpa",
 ).to(dtype=dtype).to(device).eval()
-processor = AutoProcessor.from_pretrained(MODEL_ID, trust_remote_code=True)
+processor = AutoProcessor.from_pretrained(MODEL_DIR, trust_remote_code=True)
+
+chunks = split_wav_chunks(model_wav, run_dir / "chunks", CHUNK_SECONDS, OVERLAP_SECONDS)
+segments, chunk_results = [], []
 started = time.perf_counter()
-result = generate_transcription(
-    model, processor, build_transcription_messages(model_wav),
-    max_new_tokens=MAX_NEW_TOKENS, do_sample=False, device=device, dtype=dtype,
-)
+for chunk in chunks:
+    chunk_started = time.perf_counter()
+    result = generate_transcription(
+        model, processor, build_transcription_messages(chunk["path"]),
+        max_new_tokens=MAX_NEW_TOKENS, do_sample=False, device=device, dtype=dtype,
+    )
+    hit_limit = result.get("generated_tokens", 0) >= MAX_NEW_TOKENS
+    parsed = parse_transcript(result["text"])
+    kept = 0
+    for s in parsed:
+        start = s.start + chunk["offset"]
+        if not chunk["offset"] <= start < chunk["owned_end"]:
+            continue  # belongs to the next chunk's window
+        kept += 1
+        # Speaker IDs are assigned per chunk; C02:S01 is not necessarily C03:S01.
+        segments.append(dict(start_seconds=start, end_seconds=s.end + chunk["offset"],
+                             model_speaker=f"C{chunk['index'] + 1:02d}:{s.speaker}",
+                             text=s.text, review_reason="chunk_hit_token_limit" if hit_limit else ""))
+    chunk_results.append(dict(index=chunk["index"], offset_seconds=chunk["offset"],
+                              end_seconds=chunk["end"], text=result["text"],
+                              generated_tokens=result.get("generated_tokens"),
+                              hit_token_limit=hit_limit, parsed_turns=len(parsed), kept_turns=kept,
+                              seconds=round(time.perf_counter() - chunk_started, 2)))
+    print(f"chunk {chunk['index'] + 1}/{len(chunks)} {chunk['offset']:.0f}-{chunk['end']:.0f}s: "
+          f"{kept} turns, {result.get('generated_tokens')} tokens"
+          + (" (HIT TOKEN LIMIT)" if hit_limit else ""))
 elapsed = time.perf_counter() - started
-raw_text = result["text"]
-(run_dir / "moss_raw.txt").write_text(raw_text, encoding="utf-8")
-(run_dir / "moss_raw.json").write_text(json.dumps(result, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
-segments = [dict(start_seconds=s.start, end_seconds=s.end,
-                 model_speaker=s.speaker, text=s.text)
-            for s in parse_transcript(raw_text)]
+(run_dir / "moss_raw.txt").write_text(
+    "\\n\\n".join(f"## chunk {c['index'] + 1} (+{c['offset_seconds']:.2f}s)\\n{c['text']}"
+                for c in chunk_results), encoding="utf-8")
+(run_dir / "moss_raw.json").write_text(json.dumps(chunk_results, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
 rows = save_turns(run_dir, segments, duration_seconds)
 save_summary(run_dir, model=MODEL_ID, **gpu_info, denoise=DENOISE,
-             generated_tokens=result.get("generated_tokens"), max_new_tokens=MAX_NEW_TOKENS,
+             chunk_seconds=CHUNK_SECONDS, overlap_seconds=OVERLAP_SECONDS, chunks=len(chunks),
+             chunks_hit_token_limit=sum(c["hit_token_limit"] for c in chunk_results),
+             max_new_tokens_per_chunk=MAX_NEW_TOKENS,
              inference_seconds=round(elapsed, 2), parsed_turns=len(rows),
-             needs_review=not rows or result.get("generated_tokens", 0) >= MAX_NEW_TOKENS)
-print(f"{len(rows)} turns saved in {run_dir}; inspect moss_raw.txt if empty or truncated")
+             needs_review=not rows or any(c["hit_token_limit"] for c in chunk_results))
+print(f"{len(rows)} turns saved in {run_dir}; inspect moss_raw.txt per chunk if empty or looping")
 rows[:10]
 """
 
@@ -294,31 +324,28 @@ rows[:10]
 """
 
 TIMELINE_MOSS = """if RUN_MODEL:
-    from pipeline_common import render_speaker_timeline
-    fig, timeline_path = render_speaker_timeline(
+    from pipeline_common import render_speaker_timeline, show_figure
+    fig = render_speaker_timeline(
         run_dir, rows, route="moss", source_name=Path(INPUT_FILE).name,
     )
-    fig.show(config={"scrollZoom": True})
-    print("Interactive timeline:", timeline_path)
+    show_figure(fig)
 else:
     print("Timeline skipped: set RUN_MODEL=True after installing MOSS and rerun the notebook.")
 """
 
-TIMELINE_VIBE = """from pipeline_common import render_speaker_timeline
-fig, timeline_path = render_speaker_timeline(
+TIMELINE_VIBE = """from pipeline_common import render_speaker_timeline, show_figure
+fig = render_speaker_timeline(
     run_dir, rows, route="vibevoice", source_name=Path(INPUT_FILE).name,
 )
-fig.show(config={"scrollZoom": True})
-print("Interactive timeline:", timeline_path)
+show_figure(fig)
 """
 
-TIMELINE_NEMO = """from pipeline_common import render_speaker_timeline
-fig, timeline_path = render_speaker_timeline(
+TIMELINE_NEMO = """from pipeline_common import render_speaker_timeline, show_figure
+fig = render_speaker_timeline(
     run_dir, rows, route="nemo_fw", source_name=Path(INPUT_FILE).name,
     diarization=diar_rows,
 )
-fig.show(config={"scrollZoom": True})
-print("Interactive timeline:", timeline_path)
+show_figure(fig)
 """
 
 
@@ -330,7 +357,7 @@ MOSS_SETTINGS = SETTINGS.replace(
 write("01_MOSS.ipynb", [
     md("""# MOSS video/audio preparation and optional inference
 
-Use the local `Trauma MOSS prep` kernel or `.venv-moss/Scripts/python.exe` on Windows. With `RUN_MODEL=False` (default), **Run All** extracts audio, optionally denoises it, and shows short original/processed players in section 2. It also creates `audio_preview.html` with full-recording players. This path needs `imageio-ffmpeg`, not PyTorch or a GPU. Set `RUN_MODEL=True` later when the full MOSS environment is installed; the last cell then renders and saves the three-panel timeline.
+Use the local `Trauma MOSS prep` kernel or `.venv-moss/Scripts/python.exe` on Windows. With `RUN_MODEL=False` (default), **Run All** extracts audio, optionally denoises it, and shows short original/processed players in section 2. It also creates `audio_preview.html` with full-recording players. This path needs `imageio-ffmpeg`, not PyTorch or a GPU. Set `RUN_MODEL=True` later when the full MOSS environment is installed; the last cell then shows the three-panel timeline inline.
 
 Put a local absolute MP4 path in ignored `local_config.json` as `{"input_file": "..."}` or set `TRAUMA_INPUT_FILE`. Keep source recordings and `runs/` out of Git. Speaker labels from later inference remain anonymous drafts.
 """),
