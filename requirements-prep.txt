@@ -1,5 +1,6 @@
-# Audio extraction, optional FFmpeg denoising, and notebook playback preview.
+# Audio extraction, selectable denoising, and notebook playback preview.
 # No PyTorch or model packages.
 ipykernel>=6.29,<8
 jupyterlab>=4.2,<5
 imageio-ffmpeg>=0.6,<1
+noisereduce==3.0.3

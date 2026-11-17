@@ -1,6 +1,6 @@
 # Trauma audio pipelines for a local RTX 5090
 
-Three independent Jupyter paths: **MOSS**, **VibeVoice ASR**, and **NeMo Nemotron-3-Diarization + Faster Whisper**. Each accepts a local audio/video file, extracts one audio stream to 16 kHz mono PCM, optionally applies FFmpeg `afftdn` denoising, and writes a common `speaker_attributed_turns.csv` format. The notebooks are new local editions based on the corresponding Colab notebooks in `../NoteBooks/`; the original upload cell and other Colab files are untouched.
+Three independent Jupyter paths: **MOSS**, **VibeVoice ASR**, and **NeMo Nemotron-3-Diarization + Faster Whisper**. Each accepts a local audio/video file, extracts one audio stream to 16 kHz mono PCM, optionally applies selectable denoising, and writes a common `speaker_attributed_turns.csv` format. The notebooks are new local editions based on the corresponding Colab notebooks in `../NoteBooks/`; the original upload cell and other Colab files are untouched.
 
 ## First: local video extraction and listening check (no GPU)
 
@@ -12,7 +12,7 @@ python setup_env.py moss --prep-only
 jupyter lab
 ```
 
-The setup command installs only `requirements-prep.txt` (Jupyter, kernel, and bundled FFmpeg). On a fresh Windows clone without `.venv-moss`, install Python 3.12 first and run `py -3.12 setup_env.py moss --prep-only`; use the full Python path if the `py` launcher is unavailable. In VS Code, choose the **Trauma MOSS prep** kernel or `.venv-moss/Scripts/python.exe`.
+The setup command installs only `requirements-prep.txt` (Jupyter, kernel, bundled FFmpeg, and CPU `noisereduce`). On a fresh Windows clone without `.venv-moss`, install Python 3.12 first and run `py -3.12 setup_env.py moss --prep-only`; use the full Python path if the `py` launcher is unavailable. In VS Code, choose the **Trauma MOSS prep** kernel or `.venv-moss/Scripts/python.exe`.
 
 Extract a video from its ZIP archive before setting it as input. Put the MP4's absolute path in an ignored `local_config.json` beside the notebooks, using forward slashes in JSON even on Windows:
 
@@ -63,7 +63,7 @@ Open the notebook with its matching kernel, put an extracted local MP4 path in i
 
 ## Denoising and outputs
 
-`DENOISE=False` is the baseline. `DENOISE=True` runs FFmpeg's [afftdn](https://ffmpeg.org/ffmpeg-filters.html#afftdn) FFT denoiser with `nr=12` dB by default. `NOISE_REDUCTION_DB` accepts 1–30; switch denoising off with `DENOISE=False`. This is a configurable baseline filter, not a validated trauma-room denoising method; compare both branches by listening and checking word and speaker accuracy. `audio_16k_mono_original.wav`, `audio_16k_mono_model.wav`, and `input_manifest.json` preserve the comparison and input hash. Other files include raw model output, a common CSV and readable transcript, and `run_summary.json`. NeMo also writes diarization CSV/RTTM, ASR JSON, and word alignment CSV.
+`DENOISE=False` is the baseline. Set `DENOISE=True` and `DENOISE_METHOD="noisereduce"` for the [noisereduce](https://github.com/timsainb/noisereduce) nonstationary spectral gate. `DENOISE_STRENGTH` is `prop_decrease` from 0.0 to 1.0; try 0.6, 0.8, and 1.0 on the same excerpt. Higher values suppress the estimated noise more aggressively and may damage quiet speech. This CPU method needs no PyTorch or GPU. To compare with the prior filter, select `DENOISE_METHOD="afftdn"`; its [FFmpeg](https://ffmpeg.org/ffmpeg-filters.html#afftdn) `NOISE_REDUCTION_DB` accepts 1–30. Switch all denoising off with `DENOISE=False`. These filters are not validated trauma-room enhancement methods; compare by listening and checking word and speaker accuracy. Overlapping voices are not reliably separated by noise suppression. `audio_16k_mono_original.wav`, `audio_16k_mono_model.wav`, and `input_manifest.json` preserve the comparison and input hash. Other files include raw model output, a common CSV and readable transcript, and `run_summary.json`. NeMo also writes diarization CSV/RTTM, ASR JSON, and word alignment CSV.
 
 Notebook audio players embed only the selected short excerpt in cell output. **Clear all notebook outputs before committing or uploading** a notebook that you ran on Aimbient data. Full audio, HTML timelines, transcripts, and model outputs stay under Git-ignored `runs/`.
 
@@ -84,6 +84,6 @@ Speaker IDs are anonymous and local to a recording. NeMo assigns words to speake
 
 ## Validation status
 
-The JSON notebooks and Python sources are syntax checked locally. The selected 19-minute-59-second Aimbient MP4 was extracted from its ZIP and converted with the bundled FFmpeg both with denoising off and on. Both runs produced 16 kHz mono WAVs and local audio comparison pages. The revised MOSS notebook completed Run All with two inline audio players and model inference skipped. All three timeline routes generated HTML from synthetic speaker turns; actual model timelines and listening quality still need review after inference.
+The JSON notebooks and Python sources are syntax checked locally. The selected 19-minute-59-second Aimbient MP4 was extracted from its ZIP and converted with the bundled FFmpeg both with denoising off and on. A full-length `noisereduce` run at strength 0.8 also completed with a valid 16 kHz mono WAV and local audio comparison page. The same 20-second excerpt completed at strengths 0.6 and 1.0, with different output levels. The revised MOSS notebook previously completed Run All with two inline audio players and model inference skipped; the updated notebook cells have not yet been executed in Jupyter. All three timeline routes generated HTML from synthetic speaker turns; actual model timelines and listening quality still need review after inference.
 
 Upstream interfaces: [MOSS](https://github.com/OpenMOSS/MOSS-Transcribe-Diarize), [VibeVoice](https://github.com/microsoft/VibeVoice), [Nemotron-3 model card](https://huggingface.co/nvidia/Nemotron-3-Diarization), [Faster Whisper CUDA notes](https://github.com/SYSTRAN/faster-whisper).

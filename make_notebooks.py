@@ -31,7 +31,7 @@ def write(name, cells):
 
 INTRO = """# {title}
 
-Run top to bottom in a **fresh local Jupyter kernel** with the matching route environment from README. Put one extracted audio/video file path in ignored `local_config.json` or set `TRAUMA_INPUT_FILE`. `DENOISE=True` applies FFmpeg `afftdn`; `False` copies the normalized WAV unchanged. Both versions and the input hash are saved under `runs/`. Section 2 provides short inline audio players and a full-recording HTML comparison.
+Run top to bottom in a **fresh local Jupyter kernel** with the matching route environment from README. Put one extracted audio/video file path in ignored `local_config.json` or set `TRAUMA_INPUT_FILE`. `DENOISE=True` applies the selected `DENOISE_METHOD`; `False` copies the normalized WAV unchanged. Both versions and the input hash are saved under `runs/`. Section 2 provides short inline audio players and a full-recording HTML comparison.
 
 Outputs are draft anonymous speaker labels, not verified identities or clinical roles. Check the audio before interpreting them. No input recordings or outputs belong in Git.
 """
@@ -50,25 +50,28 @@ if not INPUT_FILE and Path("local_config.json").is_file():
 OUTPUT_ROOT = "runs"
 AUDIO_STREAM = 0
 DENOISE = False  # True / False
-NOISE_REDUCTION_DB = 12  # FFmpeg afftdn nr; 1..30; only used if DENOISE=True
+DENOISE_METHOD = "noisereduce"  # "noisereduce" or "afftdn"
+DENOISE_STRENGTH = 0.8  # noisereduce: 0.0..1.0; try 0.6, 0.8, 1.0
+NOISE_REDUCTION_DB = 12  # FFmpeg afftdn only: nr 1..30
 PREVIEW_START_SECONDS = 0  # choose where to listen in the recording
 PREVIEW_DURATION_SECONDS = 20  # 1..60; bounded notebook audio output
 
 if not INPUT_FILE:
     raise ValueError("Set TRAUMA_INPUT_FILE or create ignored local_config.json with input_file")
 print("Notebook Python:", sys.executable)
-print("Route:", ROUTE, "| denoise:", DENOISE)
+print("Route:", ROUTE, "| denoise:", DENOISE, "| method:", DENOISE_METHOD)
 """
 
 PREP = """run_dir, model_wav, manifest = prepare_audio(
     INPUT_FILE, OUTPUT_ROOT, ROUTE, denoise=DENOISE,
     audio_stream=AUDIO_STREAM, noise_reduction_db=NOISE_REDUCTION_DB,
+    denoise_method=DENOISE_METHOD, denoise_strength=DENOISE_STRENGTH,
 )
 duration_seconds = manifest["duration_seconds"]
 print(f"Model input: {model_wav} ({duration_seconds:.2f}s)")
 print(f"Denoising: {manifest['denoise_filter'] or 'off'}")
 print(f"Output: {run_dir}")
-preview_path = write_audio_preview(run_dir, denoise=DENOISE)
+preview_path = write_audio_preview(run_dir, denoise=DENOISE, method=DENOISE_METHOD)
 print(f"Open this file in a browser to compare both audio players: {preview_path}")
 preview_original, preview_model = make_inline_audio_clips(
     run_dir, start_seconds=PREVIEW_START_SECONDS,
@@ -78,7 +81,7 @@ from IPython.display import Audio, Markdown, display
 display(Markdown(f"**Original audio** — {PREVIEW_START_SECONDS}s to "
                  f"{PREVIEW_START_SECONDS + PREVIEW_DURATION_SECONDS}s"))
 display(Audio(filename=str(preview_original)))
-display(Markdown(f"**Model input** — denoise {'on' if DENOISE else 'off'}"))
+display(Markdown(f"**Model input** — {manifest['denoise_filter'] or 'denoise off'}"))
 display(Audio(filename=str(preview_model)))
 """
 

@@ -1,0 +1,3 @@
+# Optional CPU transcription comparison for 04_Denoise_Listening_Lab.ipynb.
+-r requirements-prep.txt
+faster-whisper>=1.2,<2
