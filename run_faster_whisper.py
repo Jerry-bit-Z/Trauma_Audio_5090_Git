@@ -16,7 +16,11 @@ with wave.open(config["wav_path"], "rb") as handle:
 model = WhisperModel(config["model"], device="cuda", compute_type="float16")
 segments, info = model.transcribe(
     audio, language=config.get("language") or None, beam_size=5,
-    word_timestamps=True, vad_filter=False,
+    word_timestamps=True,
+    # Conditioning on earlier text makes Whisper loop through long silences
+    # (one phrase repeated for minutes). Silero VAD drops most quiet, distant
+    # trauma-bay speech, so keep it off.
+    vad_filter=False, condition_on_previous_text=False,
 )
 records = [
     {"start": segment.start, "end": segment.end, "text": segment.text,

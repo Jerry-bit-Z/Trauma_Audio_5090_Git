@@ -1,18 +1,63 @@
 # Source audio/video, derived audio, transcripts, and model caches may contain sensitive material.
+# Notebook outputs (embedded audio, transcripts) are stripped on commit by the
+# strip-notebook-outputs Git filter; run `python setup_env.py ...` once per clone to enable it.
+
+# Run outputs and local data
 runs/
 data/
+outputs/
+iframe_figures/
+*_speaker_timeline.html
+audio_preview.html
+
+# Audio and video
 *.wav
 *.mp3
 *.mp4
-*.mov
 *.m4a
+*.aac
 *.flac
+*.ogg
+*.opus
+*.wma
+*.mov
+*.mkv
+*.avi
+*.webm
+*.zip
+*.7z
+*.tar
+*.gz
+
+# Transcripts and diarization exports
+*.rttm
+*.srt
+*.vtt
+*.ass
+*.csv
+*.parquet
+
+# Model weights and caches
+models/
 *.nemo
 *.safetensors
 *.pt
+*.pth
 *.ckpt
+*.bin
+*.onnx
+*.gguf
+*.h5
+*.npy
+*.npz
+.cache/
+hf_cache/
+
+# Local configuration and secrets
 .env
 local_config.json
+
+# Python and Jupyter
 .venv*/
 __pycache__/
 .ipynb_checkpoints/
